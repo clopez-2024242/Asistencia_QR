@@ -1,0 +1,32 @@
+# Base de datos con asistencia real (y archivos auxiliares de SQLite en modo WAL)
+asistencia.db
+asistencia.db-wal
+asistencia.db-shm
+asistencia.db-journal
+
+# Imágenes QR generadas (el nombre de archivo incluye nombre y apellido del alumno)
+qr/
+
+# Excel exportados con asistencia real
+asistencia/
+
+# --- Configuración local ---
+# Contiene rutas propias de cada máquina; cada quien genera el suyo
+# la primera vez que corre el programa (config.py lo crea automático).
+config.ini
+
+# --- Artefactos de Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# --- Artefactos de compilación (PyInstaller) ---
+build/
+dist/
+
+# --- Basura del sistema operativo ---
+.DS_Store
+Thumbs.db

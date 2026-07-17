@@ -1,74 +1,74 @@
-import pandas as pd
-import qrcode
+"""
+Genera las imágenes QR para todos los estudiantes que ya estén
+sincronizados en la base de datos (correr primero importar_estudiantes.py
+si hay estudiantes nuevos o cambios).
+
+La carpeta de salida y demás rutas se controlan desde config.ini,
+no están fijas en el código.
+"""
+
 import os
 import re
+import sqlite3
 
-os.makedirs("qr", exist_ok=True)
+import qrcode
 
-df_basicos = pd.read_excel("")
-df_basicos.columns = df_basicos.columns.str.strip()
-df_basicos.columns = df_basicos.columns.str.strip()
+import config
+import data_access
 
-df_diversificado = pd.read_excel("")
-df_diversificado.columns = df_diversificado.columns.str.strip()
-df_diversificado = df_diversificado[["Código Personal","Nombres","Apellidos","CARRERA"]]
 
-df_diversificado = df_diversificado.rename(columns={"CARRERA": "GRADO"})
+def _nombre_archivo_seguro(texto):
+    """Limpia caracteres no válidos para nombres de archivo/carpeta."""
+    texto = re.sub(r'[<>:"/\\|?*]', '', texto)
+    return texto.strip().replace(" ", "_")
 
-df = pd.concat([df_basicos, df_diversificado], ignore_index=True)
 
-codigos_generados = set()
-registro_qr = []
+def obtener_todos_los_estudiantes():
+    with sqlite3.connect(data_access.DB_PATH) as con:
+        con.row_factory = sqlite3.Row
+        filas = con.execute("SELECT * FROM estudiantes").fetchall()
+        return [dict(f) for f in filas]
 
-for _, fila in df.iterrows():
 
-    codigo_raw = fila["Código Personal"]
+def generar_qr_para_estudiante(estudiante):
+    codigo = estudiante["codigo_personal"]
+    nombre = _nombre_archivo_seguro(estudiante["nombres"])
+    apellido = _nombre_archivo_seguro(estudiante["apellidos"])
+    grado = _nombre_archivo_seguro(estudiante["grado"])
 
-    if pd.isna(codigo_raw):
-        continue
-
-    codigo = str(codigo_raw).strip()
-
-    if codigo in codigos_generados:
-        print(f"Código duplicado ignorado: {codigo}")
-        continue
-
-    codigos_generados.add(codigo)
-
-    nombre = str(fila["Nombres"]).strip().replace(" ", "_")
-    apellido = str(fila["Apellidos"]).strip().replace(" ", "_")
-    grado = str(fila["GRADO"]).strip()
-    grado = re.sub(r'[<>:"/\\|?*]', '', grado)
-    grado = grado.replace(" ", "_")
-
-    carpeta_grado = f"qr/{grado}"
+    carpeta_grado = os.path.join(config.CARPETA_QR, grado)
     os.makedirs(carpeta_grado, exist_ok=True)
 
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
         box_size=10,
-        border=4
+        border=4,
     )
-
     qr.add_data(codigo)
     qr.make(fit=True)
-
     img = qr.make_image(fill_color="black", back_color="white")
 
     archivo_qr = f"{codigo}_{apellido}_{nombre}.jpg"
-    img.save(f"{carpeta_grado}/{archivo_qr}", "JPEG")
+    img.save(os.path.join(carpeta_grado, archivo_qr), "JPEG")
+    return archivo_qr
 
-    print(f"QR generado para {codigo} ({grado})")
 
-    registro_qr.append({
-        "Código Personal": codigo,
-        "Nombre": nombre,
-        "Apellido": apellido,
-        "GRADO": grado,
-        "Archivo QR": archivo_qr
-    })
+def main():
+    data_access.inicializar_db()
+    estudiantes = obtener_todos_los_estudiantes()
 
-pd.DataFrame(registro_qr).to_excel("registro_qr.xlsx", index=False)
+    if not estudiantes:
+        print("No hay estudiantes en la base de datos. "
+              "Corre primero importar_estudiantes.py.")
+        return
 
-print("Todos los QR han sido generados.")
+    for estudiante in estudiantes:
+        archivo = generar_qr_para_estudiante(estudiante)
+        print(f"QR generado para {estudiante['codigo_personal']} ({estudiante['grado']}) -> {archivo}")
+
+    print(f"Listo: {len(estudiantes)} QR generados en '{config.CARPETA_QR}/'.")
+
+
+if __name__ == "__main__":
+    main()
