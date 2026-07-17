@@ -1,251 +1,133 @@
 import cv2
 from pyzbar.pyzbar import decode
-import pandas as pd
-from datetime import datetime, timedelta, time
-import os
+from datetime import datetime, timedelta
 
-os.makedirs("asistencia", exist_ok=True)
+import config
+import data_access
 
-#Horas Limite
-HORA_LIMITE_ENTRADA = time(13, 0, 0)   # 01:00 PM
-HORA_LIMITE_SALIDA = time(18, 30, 0)   # 06:00 PM
-
-#Creacion de archivos
-archivo_estudiantes_diversificado = ""
-archivo_estudiantes_basicos = ""
-
-#Datos del QR
-df_basicos = pd.read_excel(archivo_estudiantes_basicos)
-df_basicos.columns = df_basicos.columns.str.strip()
-df_basicos = df_basicos[[
-    "Código Personal",
-    "Nombres",
-    "Apellidos",
-    "GRADO"
-]]
-
-df_diversificado = pd.read_excel(archivo_estudiantes_diversificado)
-df_diversificado.columns = df_diversificado.columns.str.strip()
-df_diversificado = df_diversificado[[
-    "Código Personal",
-    "Nombres",
-    "Apellidos",
-    "CARRERA"
-]]
-
-df_diversificado = df_diversificado.rename(columns={"CARRERA": "GRADO"})
-
-df_estudiantes = pd.concat([df_basicos, df_diversificado], ignore_index=True)
-
-archivo_asistencia = f"asistencia/asistencia_{datetime.now().strftime('%Y_%m_%d')}.xlsx"
-
-if os.path.exists(archivo_asistencia):
-    df_asistencia = pd.read_excel(archivo_asistencia)
-    df_asistencia["hora_entrada"] = df_asistencia["hora_entrada"].astype("object")
-    df_asistencia["hora_salida"] = df_asistencia["hora_salida"].astype("object")
-else:
-    df_asistencia = pd.DataFrame(columns=[
-        "Código Personal",
-        "Nombres",
-        "Apellidos",
-        "GRADO",
-        "fecha",
-        "hora_entrada",
-        "hora_salida",
-        "estado",
-        "justificado"
-    ])
-    df_asistencia.to_excel(archivo_asistencia, index=False)
-    
-fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-for _, fila in df_estudiantes.iterrows():
-
-    codigo = str(fila["Código Personal"]).strip()
-    nombre = fila["Nombres"]
-    apellido = fila["Apellidos"]
-    grado = fila["GRADO"]
-
-    registro = df_asistencia[
-        (df_asistencia["Código Personal"].astype(str) == codigo) &
-        (df_asistencia["fecha"] == fecha_hoy)
-    ]
-    
-    if registro.empty:
-        nuevo = pd.DataFrame([[
-            codigo,
-            nombre,
-            apellido,
-            grado,
-            fecha_hoy,
-            None,
-            None,
-            "AUSENTE",
-            "NO"
-        ]], columns=df_asistencia.columns)
-
-        df_asistencia = pd.concat([df_asistencia, nuevo], ignore_index=True)
-
-# Guardar
-df_asistencia.to_excel(archivo_asistencia, index=False)
-
-#Evitar Leer QR durante 15 segundos
+# Evitar leer el mismo QR varias veces seguidas
 bloqueo_qr = {}
-BLOQUEO_SEGUNDOS = 15
+BLOQUEO_SEGUNDOS = config.SEGUNDOS_BLOQUEO_QR
 
-#Visuales
+# Visuales
 mensaje = ""
 color_mensaje = (255, 255, 255)
 mensaje_hasta = datetime.min
 
-#Iniciar Camara
-print("Iniciando cámara. Preciones ESC para salir.")
-cap = cv2.VideoCapture(0)
 
-cv2.namedWindow("Escaneo QR", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Escaneo QR", 1280, 720)
+def procesar_codigo(codigo, ahora):
+    global mensaje, color_mensaje, mensaje_hasta
 
-#Leer Excel
-df_asistencia = pd.read_excel(archivo_asistencia)
-df_asistencia["hora_entrada"] = df_asistencia["hora_entrada"].astype("object")
-df_asistencia["hora_salida"] = df_asistencia["hora_salida"].astype("object")
+    estudiante = data_access.obtener_estudiante(codigo)
+    if estudiante is None:
+        print(f"QR no reconocido: {codigo}")
+        mensaje = "QR no reconocido"
+        color_mensaje = (0, 0, 255)
+        mensaje_hasta = ahora + timedelta(seconds=2)
+        return
 
-#Lectura QR Camara
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    nombre = estudiante["nombres"]
+    fecha = ahora.strftime("%Y-%m-%d")
+    hora = ahora.strftime("%H:%M:%S")
+    hora_actual = ahora.time()
 
-    frame = cv2.flip(frame, 1)
+    registro = data_access.obtener_registro(codigo, fecha)
+    if registro is None:
+        # No debería pasar si asegurar_registros_del_dia corrió al inicio,
+        # pero cubrimos el caso por seguridad.
+        print(f"No hay registro del día para {nombre}")
+        return
 
-    ahora = datetime.now()
+    # --------- Entrada ---------
+    if registro["hora_entrada"] is None:
+        estado = "TARDE" if hora_actual > data_access.HORA_LIMITE_ENTRADA else "PRESENTE"
+        data_access.registrar_entrada(codigo, fecha, hora, estado)
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    for qr in decode(gray):
-        codigo = qr.data.decode("utf-8").strip()
+        print(f"Entrada registrada: {nombre} - {estado}")
+        mensaje = f"{nombre} - {estado}"
+        color_mensaje = (0, 255, 0)
+        mensaje_hasta = ahora + timedelta(seconds=2)
+        return
 
-        #QR de estudiante bloqueado
-        if codigo in bloqueo_qr:
-            if (ahora - bloqueo_qr[codigo]).total_seconds() < BLOQUEO_SEGUNDOS:
-                continue
-            else:
-                del bloqueo_qr[codigo]
+    # --------- Salida ---------
+    if registro["hora_salida"] is not None:
+        mensaje = f"{nombre} - ya tiene entrada y salida hoy"
+        color_mensaje = (0, 255, 255)
+        mensaje_hasta = ahora + timedelta(seconds=2)
+        return
 
-        bloqueo_qr[codigo] = ahora
+    if hora_actual > data_access.HORA_LIMITE_SALIDA:
+        print(f"{nombre} no puede marcar salida después de las 6:30 PM")
+        mensaje = f"{nombre} - no puede marcar salida después de las 6:30 PM"
+        color_mensaje = (0, 0, 255)
+        mensaje_hasta = ahora + timedelta(seconds=2)
+        return
 
-        #Ver si estudiante existe
-        fila = df_estudiantes[
-            df_estudiantes["Código Personal"].astype(str) == str(codigo)
-        ]
+    hora_entrada_dt = datetime.combine(
+        ahora.date(),
+        datetime.strptime(registro["hora_entrada"], "%H:%M:%S").time()
+    )
+    if (ahora - hora_entrada_dt) < timedelta(minutes=30):
+        print(f"{nombre} debe esperar 30 minutos para marcar salida")
+        mensaje = f"{nombre} - debe esperar 30 min para marcar salida"
+        color_mensaje = (0, 255, 255)
+        mensaje_hasta = ahora + timedelta(seconds=2)
+        return
 
-        if fila.empty:
-            nombre = "DESCONOCIDO"
-            apellido = "DESCONOCIDO"
-            grado = "SIN_GRADO"
-        else:
-            nombre = f"{fila['Nombres'].values[0]}"
-            apellido = f"{fila['Apellidos'].values[0]}"
-            grado = str(fila["GRADO"].values[0]).strip()
-
-        #Estudiante Encontrado
-        print(f"Detectado: {nombre} ({codigo})")
-
-        fecha = ahora.strftime("%Y-%m-%d")
-        hora = ahora.strftime("%H:%M:%S")
-        hora_actual = ahora.time()
-
-        registro_hoy = df_asistencia[
-            (df_asistencia["Código Personal"].astype(str) == codigo) &
-            (df_asistencia["fecha"] == fecha)
-        ]
-
-        #---------------------Area de Entrada---------------------
-        if registro_hoy.empty:
-            print(f"No se encontró registro para {nombre}")
-            continue
-        idx = registro_hoy.index[0]
-        if pd.isna(df_asistencia.at[idx, "hora_entrada"]):
-            if hora_actual > HORA_LIMITE_ENTRADA:
-                estado = "TARDE"
-                hora_entrada = hora
-                justificado = False
-            else:
-                estado = "PRESENTE"
-                hora_entrada = hora
-                justificado = False
-
-            df_asistencia.at[idx, "hora_entrada"] = hora
-            df_asistencia.at[idx, "estado"] = estado
-
-            with pd.ExcelWriter(archivo_asistencia, engine="openpyxl") as writer:
-                for grado_excel in df_asistencia["GRADO"].unique():
-                    df_grado = df_asistencia[df_asistencia["GRADO"] == grado_excel]
-                    df_grado.to_excel(writer, sheet_name=str(grado_excel)[:31], index=False)
-
-            mensaje = f"{nombre} - {estado}" #Mensaje
-            color_mensaje = (0, 255, 0)  #Color
-            mensaje_hasta = datetime.now() + timedelta(seconds=2) #Tiempo
-        #---------------------Area de Salida---------------------
-        else:
-            if registro_hoy.empty:
-                print(f"No se encontró registro para {nombre}")
-                continue
-
-            idx = registro_hoy.index[0]
-
-            if pd.notna(df_asistencia.at[idx, "hora_salida"]):
-                mensaje = f"{nombre} - ya tiene entrada y salida hoy" #Mensaje
-                color_mensaje = (0, 255, 255)  #Color
-                mensaje_hasta = datetime.now() + timedelta(seconds=2) #Tiempo
-            else:
-                hora_entrada_str = df_asistencia.at[idx, "hora_entrada"]
-
-                # Si fue AUSENTE no puede salir
-                if pd.isna(hora_entrada_str):
-                    print(f"{nombre} fue marcado AUSENTE")
-
-                else:
-                    hora_entrada_dt = datetime.combine(
-                        ahora.date(),
-                        datetime.strptime(hora_entrada_str, "%H:%M:%S").time()
-                    )
-                    diferencia = ahora - hora_entrada_dt
-
-                    if hora_actual > HORA_LIMITE_SALIDA:
-                        print(f"{nombre} no puede marcar salida después de la 6:30 PM")
-
-                        mensaje = f"{nombre} - no puede marcar salida después de la 6:30 PM" #Mensaje
-                        color_mensaje = (0, 0, 255)  #Color
-                        mensaje_hasta = datetime.now() + timedelta(seconds=2) #Tiempo
-
-                    elif diferencia >= timedelta(minutes=30):
-                        df_asistencia.at[idx, "hora_salida"] = hora
-                        with pd.ExcelWriter(archivo_asistencia, engine="openpyxl") as writer:
-                            for grado_excel in df_asistencia["GRADO"].unique():
-                                df_grado = df_asistencia[df_asistencia["GRADO"] == grado_excel]
-                                df_grado.to_excel(writer, sheet_name=str(grado_excel)[:31], index=False)
-
-                        mensaje = f"{nombre} - SALIDA REGISTRADA" #Mensaje
-                        color_mensaje = (0, 255, 0)  #Color
-                        mensaje_hasta = datetime.now() + timedelta(seconds=2) #Tiempo
-
-                    else:
-                        print("Debe esperar 30 minutos para marcar salida")
+    data_access.registrar_salida(codigo, fecha, hora)
+    print(f"Salida registrada: {nombre}")
+    mensaje = f"{nombre} - SALIDA REGISTRADA"
+    color_mensaje = (0, 255, 0)
+    mensaje_hasta = ahora + timedelta(seconds=2)
 
 
-    if datetime.now() < mensaje_hasta:
-        cv2.putText(
-            frame,
-            mensaje,
-            (10, 50),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            color_mensaje,
-            2
-        )
+def main():
+    data_access.inicializar_db()
 
-    cv2.imshow("Escaneo QR", frame)
-    if cv2.waitKey(1) & 0xFF == 27:
-        break
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    data_access.asegurar_registros_del_dia(fecha_hoy)
 
-cap.release()
-cv2.destroyAllWindows()
+    print("Iniciando cámara. Presione ESC para salir.")
+    cap = cv2.VideoCapture(0)
+    cv2.namedWindow("Escaneo QR", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Escaneo QR", 1280, 720)
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("No se pudo leer la cámara.")
+                break
+
+            frame = cv2.flip(frame, 1)
+            ahora = datetime.now()
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            for qr in decode(gray):
+                codigo = qr.data.decode("utf-8").strip()
+
+                if codigo in bloqueo_qr:
+                    if (ahora - bloqueo_qr[codigo]).total_seconds() < BLOQUEO_SEGUNDOS:
+                        continue
+                bloqueo_qr[codigo] = ahora
+
+                try:
+                    procesar_codigo(codigo, ahora)
+                except Exception as e:
+                    # Un error en un escaneo no debe tumbar todo el programa
+                    print(f"Error procesando código {codigo}: {e}")
+
+            if datetime.now() < mensaje_hasta:
+                cv2.putText(frame, mensaje, (10, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7, color_mensaje, 2)
+
+            cv2.imshow("Escaneo QR", frame)
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
