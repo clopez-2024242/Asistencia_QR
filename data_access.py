@@ -76,6 +76,13 @@ def inicializar_db():
                 hora TEXT NOT NULL
             )
         """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS accesos_lector (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha_hora TEXT NOT NULL,
+                resultado TEXT NOT NULL
+            )
+        """)
 
 
 def importar_estudiantes(lista_estudiantes):
@@ -168,6 +175,28 @@ def obtener_intentos_desconocidos(fecha):
             ORDER BY hora
         """, (fecha,)).fetchall()
         return [dict(f) for f in filas]
+
+
+def registrar_acceso(fecha_hora, resultado):
+    """resultado: 'EXITOSO' o 'FALLIDO'"""
+    with _conexion() as con:
+        con.execute(
+            "INSERT INTO accesos_lector (fecha_hora, resultado) VALUES (?, ?)",
+            (fecha_hora, resultado)
+        )
+
+
+def purgar_accesos_antiguos(dias_retencion):
+    """
+    Borra los registros de acceso más viejos que `dias_retencion` días.
+    Se llama automáticamente al iniciar el lector, así el registro
+    nunca crece indefinidamente sin necesidad de mantenimiento manual.
+    """
+    with _conexion() as con:
+        con.execute("""
+            DELETE FROM accesos_lector
+            WHERE fecha_hora < datetime('now', ?)
+        """, (f"-{dias_retencion} days",))
 
 
 def obtener_asistencia_por_fecha(fecha):

@@ -31,6 +31,13 @@ _VALORES_POR_DEFECTO = {
         "tono_exito_hz": "1500",
         "tono_exito_ms": "150",
     },
+    "seguridad": {
+        # Hash SHA-256 del PIN. Valor por defecto = hash de "1234".
+        # Cambialo con cambiar_pin.py, no editando este valor a mano.
+        "pin_hash": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
+        "dias_retencion_accesos": "30",
+        "intentos_maximos": "3",
+    },
 }
 
 
@@ -78,3 +85,7 @@ TONO_ERROR_HZ = CONFIG.getint("alertas", "tono_error_hz")
 TONO_ERROR_MS = CONFIG.getint("alertas", "tono_error_ms")
 TONO_EXITO_HZ = CONFIG.getint("alertas", "tono_exito_hz")
 TONO_EXITO_MS = CONFIG.getint("alertas", "tono_exito_ms")
+
+PIN_HASH = CONFIG["seguridad"]["pin_hash"]
+DIAS_RETENCION_ACCESOS = CONFIG.getint("seguridad", "dias_retencion_accesos")
+INTENTOS_MAXIMOS = CONFIG.getint("seguridad", "intentos_maximos")

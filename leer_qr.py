@@ -1,9 +1,11 @@
 import threading
+import getpass
 
 import cv2
 from pyzbar.pyzbar import decode
 from datetime import datetime, timedelta
 
+import auth
 import config
 import data_access
 
@@ -131,8 +133,36 @@ def procesar_codigo(codigo, ahora):
     mostrar_alerta(f"{nombre} - SALIDA REGISTRADA", "exito", ahora)
 
 
+def desbloquear_con_pin():
+    """
+    Pide el PIN por consola antes de abrir la cámara. Registra cada
+    intento (éxito o fallo) y limita los intentos fallidos seguidos.
+    Devuelve True si se desbloqueó, False si se agotaron los intentos.
+    """
+    data_access.purgar_accesos_antiguos(config.DIAS_RETENCION_ACCESOS)
+
+    for intento in range(1, config.INTENTOS_MAXIMOS + 1):
+        pin = getpass.getpass("PIN para desbloquear el lector: ").strip()
+        ahora_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if auth.verificar_pin(pin):
+            data_access.registrar_acceso(ahora_str, "EXITOSO")
+            return True
+
+        data_access.registrar_acceso(ahora_str, "FALLIDO")
+        restantes = config.INTENTOS_MAXIMOS - intento
+        if restantes > 0:
+            print(f"PIN incorrecto. Intentos restantes: {restantes}")
+
+    print("Demasiados intentos fallidos. Cerrando el programa.")
+    return False
+
+
 def main():
     data_access.inicializar_db()
+
+    if not desbloquear_con_pin():
+        return
 
     fecha_hoy = datetime.now().strftime("%Y-%m-%d")
     data_access.asegurar_registros_del_dia(fecha_hoy)

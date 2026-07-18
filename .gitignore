@@ -11,8 +11,9 @@ qr/
 asistencia/
 
 # --- Configuración local ---
-# Contiene rutas propias de cada máquina; cada quien genera el suyo
-# la primera vez que corre el programa (config.py lo crea automático).
+# Contiene rutas propias de cada máquina y el hash del PIN de acceso;
+# cada quien genera el suyo la primera vez que corre el programa
+# (config.py lo crea automático) o lo actualiza con cambiar_pin.py.
 config.ini
 
 # --- Artefactos de Python ---
