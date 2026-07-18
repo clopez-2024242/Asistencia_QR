@@ -24,6 +24,13 @@ _VALORES_POR_DEFECTO = {
         "minutos_espera_salida": "30",
         "segundos_bloqueo_qr": "15",
     },
+    "alertas": {
+        "segundos_en_pantalla": "3",
+        "tono_error_hz": "1000",
+        "tono_error_ms": "350",
+        "tono_exito_hz": "1500",
+        "tono_exito_ms": "150",
+    },
 }
 
 
@@ -65,3 +72,9 @@ HORA_LIMITE_ENTRADA = CONFIG["horarios"]["hora_limite_entrada"]
 HORA_LIMITE_SALIDA = CONFIG["horarios"]["hora_limite_salida"]
 MINUTOS_ESPERA_SALIDA = CONFIG.getint("horarios", "minutos_espera_salida")
 SEGUNDOS_BLOQUEO_QR = CONFIG.getint("horarios", "segundos_bloqueo_qr")
+
+SEGUNDOS_ALERTA_EN_PANTALLA = CONFIG.getint("alertas", "segundos_en_pantalla")
+TONO_ERROR_HZ = CONFIG.getint("alertas", "tono_error_hz")
+TONO_ERROR_MS = CONFIG.getint("alertas", "tono_error_ms")
+TONO_EXITO_HZ = CONFIG.getint("alertas", "tono_exito_hz")
+TONO_EXITO_MS = CONFIG.getint("alertas", "tono_exito_ms")

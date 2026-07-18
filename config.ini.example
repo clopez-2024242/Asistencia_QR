@@ -1,0 +1,23 @@
+# Copia este archivo como config.ini y ajusta los valores según tu entorno.
+# config.py también lo genera automáticamente con estos mismos valores
+# por defecto si config.ini no existe.
+
+[rutas]
+archivo_basicos = SIRE BASICOS 2026 PARA CARNET.xlsx
+archivo_diversificado = SIRE DIVER 2026 para carnet.xlsx
+carpeta_qr = qr
+base_datos = asistencia.db
+carpeta_asistencia = asistencia
+
+[horarios]
+hora_limite_entrada = 13:00:00
+hora_limite_salida = 18:30:00
+minutos_espera_salida = 30
+segundos_bloqueo_qr = 15
+
+[alertas]
+segundos_en_pantalla = 3
+tono_error_hz = 1000
+tono_error_ms = 350
+tono_exito_hz = 1500
+tono_exito_ms = 150

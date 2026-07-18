@@ -44,6 +44,13 @@ def exportar(fecha):
             df_grado = df[df["GRADO"] == grado]
             df_grado.to_excel(writer, sheet_name=str(grado)[:31], index=False)
 
+        intentos = data_access.obtener_intentos_desconocidos(fecha)
+        if intentos:
+            df_intentos = pd.DataFrame(intentos).rename(columns={
+                "codigo_leido": "Código leído", "fecha": "Fecha", "hora": "Hora"
+            })
+            df_intentos.to_excel(writer, sheet_name="QR no reconocidos", index=False)
+
     print(f"Exportado: {archivo_salida}")
 
 

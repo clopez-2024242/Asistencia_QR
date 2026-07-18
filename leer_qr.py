@@ -1,3 +1,5 @@
+import threading
+
 import cv2
 from pyzbar.pyzbar import decode
 from datetime import datetime, timedelta
@@ -9,21 +11,77 @@ import data_access
 bloqueo_qr = {}
 BLOQUEO_SEGUNDOS = config.SEGUNDOS_BLOQUEO_QR
 
-# Visuales
+# Estado de la alerta visible en pantalla
 mensaje = ""
 color_mensaje = (255, 255, 255)
 mensaje_hasta = datetime.min
 
 
-def procesar_codigo(codigo, ahora):
+def _reproducir_tono(frecuencia_hz, duracion_ms):
+    """
+    Reproduce un beep en un hilo aparte para no congelar la vista de la
+    cámara mientras suena. Si no hay dispositivo de sonido disponible
+    (ej. no estamos en Windows), simplemente no suena -- nunca debe
+    tumbar el programa por esto.
+    """
+    def _sonar():
+        try:
+            import winsound
+            winsound.Beep(frecuencia_hz, duracion_ms)
+        except Exception:
+            pass
+
+    threading.Thread(target=_sonar, daemon=True).start()
+
+
+def mostrar_alerta(texto, nivel, ahora):
+    """
+    nivel: 'error' | 'exito' | 'aviso'
+    Actualiza el banner en pantalla y dispara el sonido correspondiente.
+    """
     global mensaje, color_mensaje, mensaje_hasta
 
+    colores = {
+        "error": (0, 0, 220),      # rojo
+        "exito": (0, 160, 0),      # verde
+        "aviso": (0, 165, 255),    # naranja
+    }
+
+    mensaje = texto
+    color_mensaje = colores.get(nivel, (80, 80, 80))
+    mensaje_hasta = ahora + timedelta(seconds=config.SEGUNDOS_ALERTA_EN_PANTALLA)
+
+    if nivel == "error":
+        _reproducir_tono(config.TONO_ERROR_HZ, config.TONO_ERROR_MS)
+    elif nivel == "exito":
+        _reproducir_tono(config.TONO_EXITO_HZ, config.TONO_EXITO_MS)
+
+
+def dibujar_banner(frame):
+    """Dibuja un banner de color a todo lo ancho, grande y visible de lejos."""
+    if datetime.now() >= mensaje_hasta:
+        return
+
+    alto_banner = 100
+    ancho = frame.shape[1]
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (ancho, alto_banner), color_mensaje, -1)
+    cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+
+    cv2.putText(frame, mensaje, (20, 65), cv2.FONT_HERSHEY_SIMPLEX,
+                1.3, (255, 255, 255), 3, cv2.LINE_AA)
+
+
+def procesar_codigo(codigo, ahora):
     estudiante = data_access.obtener_estudiante(codigo)
     if estudiante is None:
+        fecha = ahora.strftime("%Y-%m-%d")
+        hora = ahora.strftime("%H:%M:%S")
+        data_access.registrar_intento_desconocido(codigo, fecha, hora)
+
         print(f"QR no reconocido: {codigo}")
-        mensaje = "QR no reconocido"
-        color_mensaje = (0, 0, 255)
-        mensaje_hasta = ahora + timedelta(seconds=2)
+        mostrar_alerta("QR NO RECONOCIDO", "error", ahora)
         return
 
     nombre = estudiante["nombres"]
@@ -36,6 +94,7 @@ def procesar_codigo(codigo, ahora):
         # No debería pasar si asegurar_registros_del_dia corrió al inicio,
         # pero cubrimos el caso por seguridad.
         print(f"No hay registro del día para {nombre}")
+        mostrar_alerta(f"{nombre} - ERROR DE REGISTRO, avisar a administración", "error", ahora)
         return
 
     # --------- Entrada ---------
@@ -44,41 +103,32 @@ def procesar_codigo(codigo, ahora):
         data_access.registrar_entrada(codigo, fecha, hora, estado)
 
         print(f"Entrada registrada: {nombre} - {estado}")
-        mensaje = f"{nombre} - {estado}"
-        color_mensaje = (0, 255, 0)
-        mensaje_hasta = ahora + timedelta(seconds=2)
+        nivel = "aviso" if estado == "TARDE" else "exito"
+        mostrar_alerta(f"{nombre} - {estado}", nivel, ahora)
         return
 
     # --------- Salida ---------
     if registro["hora_salida"] is not None:
-        mensaje = f"{nombre} - ya tiene entrada y salida hoy"
-        color_mensaje = (0, 255, 255)
-        mensaje_hasta = ahora + timedelta(seconds=2)
+        mostrar_alerta(f"{nombre} - YA TIENE ENTRADA Y SALIDA HOY", "aviso", ahora)
         return
 
     if hora_actual > data_access.HORA_LIMITE_SALIDA:
         print(f"{nombre} no puede marcar salida después de las 6:30 PM")
-        mensaje = f"{nombre} - no puede marcar salida después de las 6:30 PM"
-        color_mensaje = (0, 0, 255)
-        mensaje_hasta = ahora + timedelta(seconds=2)
+        mostrar_alerta(f"{nombre} - NO PUEDE MARCAR SALIDA DESPUÉS DE 6:30 PM", "error", ahora)
         return
 
     hora_entrada_dt = datetime.combine(
         ahora.date(),
         datetime.strptime(registro["hora_entrada"], "%H:%M:%S").time()
     )
-    if (ahora - hora_entrada_dt) < timedelta(minutes=30):
-        print(f"{nombre} debe esperar 30 minutos para marcar salida")
-        mensaje = f"{nombre} - debe esperar 30 min para marcar salida"
-        color_mensaje = (0, 255, 255)
-        mensaje_hasta = ahora + timedelta(seconds=2)
+    if (ahora - hora_entrada_dt) < timedelta(minutes=config.MINUTOS_ESPERA_SALIDA):
+        print(f"{nombre} debe esperar {config.MINUTOS_ESPERA_SALIDA} minutos para marcar salida")
+        mostrar_alerta(f"{nombre} - DEBE ESPERAR {config.MINUTOS_ESPERA_SALIDA} MIN PARA SALIR", "aviso", ahora)
         return
 
     data_access.registrar_salida(codigo, fecha, hora)
     print(f"Salida registrada: {nombre}")
-    mensaje = f"{nombre} - SALIDA REGISTRADA"
-    color_mensaje = (0, 255, 0)
-    mensaje_hasta = ahora + timedelta(seconds=2)
+    mostrar_alerta(f"{nombre} - SALIDA REGISTRADA", "exito", ahora)
 
 
 def main():
@@ -117,9 +167,7 @@ def main():
                     # Un error en un escaneo no debe tumbar todo el programa
                     print(f"Error procesando código {codigo}: {e}")
 
-            if datetime.now() < mensaje_hasta:
-                cv2.putText(frame, mensaje, (10, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7, color_mensaje, 2)
+            dibujar_banner(frame)
 
             cv2.imshow("Escaneo QR", frame)
             if cv2.waitKey(1) & 0xFF == 27:

@@ -68,6 +68,14 @@ def inicializar_db():
                 UNIQUE (codigo_personal, fecha)
             )
         """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS intentos_desconocidos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo_leido TEXT NOT NULL,
+                fecha TEXT NOT NULL,
+                hora TEXT NOT NULL
+            )
+        """)
 
 
 def importar_estudiantes(lista_estudiantes):
@@ -140,6 +148,26 @@ def registrar_salida(codigo_personal, fecha, hora):
             SET hora_salida = ?
             WHERE codigo_personal = ? AND fecha = ?
         """, (hora, codigo_personal, fecha))
+
+
+def registrar_intento_desconocido(codigo_leido, fecha, hora):
+    with _conexion() as con:
+        con.execute("""
+            INSERT INTO intentos_desconocidos (codigo_leido, fecha, hora)
+            VALUES (?, ?, ?)
+        """, (codigo_leido, fecha, hora))
+
+
+def obtener_intentos_desconocidos(fecha):
+    with _conexion() as con:
+        con.row_factory = sqlite3.Row
+        filas = con.execute("""
+            SELECT codigo_leido, fecha, hora
+            FROM intentos_desconocidos
+            WHERE fecha = ?
+            ORDER BY hora
+        """, (fecha,)).fetchall()
+        return [dict(f) for f in filas]
 
 
 def obtener_asistencia_por_fecha(fecha):
