@@ -1,3 +1,9 @@
+# --- Datos sensibles de alumnos: NUNCA subir ---
+# Excel de origen del colegio (nombres, códigos personales)
+SIRE*.xlsx
+registro_qr.xlsx
+~$*.xlsx
+
 # Base de datos con asistencia real (y archivos auxiliares de SQLite en modo WAL)
 asistencia.db
 asistencia.db-wal

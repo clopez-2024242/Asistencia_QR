@@ -199,6 +199,68 @@ def purgar_accesos_antiguos(dias_retencion):
         """, (f"-{dias_retencion} days",))
 
 
+def obtener_resumen_dia(fecha):
+    with _conexion() as con:
+        con.row_factory = sqlite3.Row
+        fila = con.execute("""
+            SELECT
+                SUM(CASE WHEN estado = 'PRESENTE' THEN 1 ELSE 0 END) AS presentes,
+                SUM(CASE WHEN estado = 'TARDE' THEN 1 ELSE 0 END) AS tardanzas,
+                SUM(CASE WHEN estado = 'AUSENTE' THEN 1 ELSE 0 END) AS ausentes,
+                SUM(CASE WHEN hora_salida IS NOT NULL THEN 1 ELSE 0 END) AS salidas
+            FROM asistencia
+            WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        if fila is None or fila["presentes"] is None:
+            return {"presentes": 0, "tardanzas": 0, "ausentes": 0, "salidas": 0}
+        return dict(fila)
+
+
+def obtener_resumen_dia(fecha):
+    """Conteos reales para el panel: presentes, tardanzas, ausentes, salidas."""
+    with _conexion() as con:
+        con.row_factory = sqlite3.Row
+        fila = con.execute("""
+            SELECT
+                SUM(CASE WHEN estado = 'PRESENTE' THEN 1 ELSE 0 END) AS presentes,
+                SUM(CASE WHEN estado = 'TARDE' THEN 1 ELSE 0 END) AS tardanzas,
+                SUM(CASE WHEN estado = 'AUSENTE' THEN 1 ELSE 0 END) AS ausentes,
+                SUM(CASE WHEN hora_salida IS NOT NULL THEN 1 ELSE 0 END) AS salidas
+            FROM asistencia
+            WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        if fila is None:
+            return {"presentes": 0, "tardanzas": 0, "ausentes": 0, "salidas": 0}
+
+        resultado = dict(fila)
+        return {clave: (valor or 0) for clave, valor in resultado.items()}
+
+
+def obtener_resumen_dia(fecha):
+    """Conteos para la barra de resumen: presentes, tardanzas, ausentes, salidas."""
+    with _conexion() as con:
+        con.row_factory = sqlite3.Row
+        fila = con.execute("""
+            SELECT
+                SUM(CASE WHEN estado = 'PRESENTE' THEN 1 ELSE 0 END) AS presentes,
+                SUM(CASE WHEN estado = 'TARDE' THEN 1 ELSE 0 END) AS tardanzas,
+                SUM(CASE WHEN estado = 'AUSENTE' THEN 1 ELSE 0 END) AS ausentes,
+                SUM(CASE WHEN hora_salida IS NOT NULL THEN 1 ELSE 0 END) AS salidas
+            FROM asistencia
+            WHERE fecha = ?
+        """, (fecha,)).fetchone()
+
+        resultado = dict(fila) if fila else {}
+        return {
+            "presentes": resultado.get("presentes") or 0,
+            "tardanzas": resultado.get("tardanzas") or 0,
+            "ausentes": resultado.get("ausentes") or 0,
+            "salidas": resultado.get("salidas") or 0,
+        }
+
+
 def obtener_asistencia_por_fecha(fecha):
     """Para exportar a Excel: todas las filas de asistencia de una fecha, con datos del estudiante."""
     with _conexion() as con:
